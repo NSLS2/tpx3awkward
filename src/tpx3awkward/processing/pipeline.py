@@ -5,6 +5,9 @@ from functools import partial
 from pathlib import Path
 
 from tqdm import tqdm
+from numpy.typing import NDArray
+import numpy as np
+import pandas as pd
 
 from .cluster import cluster_decoded_df
 from .config import Tpx3Config
@@ -15,6 +18,68 @@ from .schemas import empty_cent_df
 
 logger = logging.getLogger(__name__)
 
+def convert_tpx3_binary(tpx3_binary: NDArray[np.uint64], *, config: Tpx3Config | None = None, **overrides) -> pd.DataFrame:
+    """
+    Convert raw binary timepix3 events into decoded and centroided Pandas dataframes.
+
+    Parameters
+    ----------
+    tpx3_binary : NDArray[np.uint64]
+        Raw binary events formatted as 8 byte messages.
+    config : Tpx3Config | None = None
+        Defines the configurations for processing. If None, then will use `Tpx3Config.from_defaults` with overrides
+    **overrides
+        Used when config is None to override default parameters.
+    """
+    if config is not None and overrides:
+        raise ValueError("Pass either `config` or keyword overrides, not both.")
+    if config is None:
+        config = Tpx3Config.from_defaults(**overrides)
+
+    if config.verbose:
+        logger.setLevel(logging.INFO)
+    else:
+        logger.setLevel(logging.WARNING)
+
+    decoded_df = decode_tpx3_binary(tpx3_binary)
+    num_events = decoded_df.shape[0]
+
+    if num_events == 0:
+        logger.info("No events found!")
+        gc.collect()
+        return True
+
+    logger.info(f"Decoding complete. {num_events} events found.")
+
+    if config.estimate_energy:
+        decoded_df["e"] = estimate_energies(
+            decoded_df["x"].to_numpy(),
+            decoded_df["y"].to_numpy(),
+            decoded_df["ToT"].to_numpy(),
+            config.energy_estimation_parameters,
+        )
+
+    if config.correct_timewalk:
+        decoded_df["t_corr"] = timewalk_corr(
+            decoded_df["t"].to_numpy(), decoded_df["ToT"].to_numpy(), config.timewalk_b, config.timewalk_c
+        )
+
+    if config.correct_trim:
+        decoded_df = trim_corr(decoded_df, config.trim_mask)
+
+    clustered_df = cluster_decoded_df(
+        decoded_df,
+        config.time_window,
+        config.radius,
+    )
+    # maybe we should put this somewhere else...
+    clustered_df.loc[clustered_df["xc"] >= 255.5, "xc"] += 2
+    clustered_df.loc[clustered_df["yc"] >= 255.5, "yc"] += 2
+
+    logger.info(f"Clustering and centroiding complete. Returning dataframe with {clustered_df.shape[0]} clustered events...")
+
+    return clustered_df
+
 
 def convert_tpx3_file(
     tpx3_fpath: str | Path,
@@ -24,7 +89,7 @@ def convert_tpx3_file(
     **overrides,
 ):
     """
-    Convert a .tpx3 file into raw and centroided Pandas dataframes, which are stored in .h5 files.
+    Convert a .tpx3 file into decoded and centroided Pandas dataframes, which are stored in parquet or hdf5 files.
 
     Parameters
     ----------
