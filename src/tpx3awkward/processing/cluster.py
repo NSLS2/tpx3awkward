@@ -30,6 +30,7 @@ def _cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bo
 
 @numba.jit(nopython=True, cache=True)
 def _get_cluster_labels(events, tw, radius):
+    events = np.asarray(events, dtype=np.float64)
     n = len(events)
     labels = np.full(n, -1, dtype=np.int64)
     cluster_id = 0
