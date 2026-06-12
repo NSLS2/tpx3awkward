@@ -20,7 +20,7 @@ def _cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bo
 
     tw_ts_ticks = int(tw * MICROSECOND / TIMESTAMP_VALUE)
 
-    events = df[cols].to_numpy()
+    events = df[cols].to_numpy(dtype=np.float64)
     events[:, 0] = np.floor_divide(events[:, 0], tw_ts_ticks)  # Bin timestamps into time windows
 
     labels = _get_cluster_labels(events, tw_ts_ticks, radius)
@@ -30,7 +30,6 @@ def _cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bo
 
 @numba.jit(nopython=True, cache=True)
 def _get_cluster_labels(events, tw, radius):
-    events = np.asarray(events, dtype=np.float64)
     n = len(events)
     labels = np.full(n, -1, dtype=np.int64)
     cluster_id = 0
