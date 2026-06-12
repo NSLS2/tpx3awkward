@@ -4,11 +4,38 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from tpx3awkward import Tpx3Config, convert_tpx3_file, convert_tpx3_files, convert_tpx3_files_parallel, read_parquet_config
+from tpx3awkward import (
+    Tpx3Config,
+    convert_tpx3_binary,
+    convert_tpx3_file,
+    convert_tpx3_files,
+    convert_tpx3_files_parallel,
+    read_parquet_config,
+)
+from tpx3awkward.processing import raw_as_numpy
 
 RAW_DATA_DIR = Path(__file__).parents[1] / "data/raw/"
 PROC_DATA_DIR = Path(__file__).parents[1] / "data/processed/"
 CONFIG_DIR = Path(__file__).parents[1] / "configs"
+
+
+def test_convert_tpx3_binary():
+    path_to_data = RAW_DATA_DIR / "raw_test_data_01.tpx3"
+    path_to_energy_parameters = CONFIG_DIR / "energy_estimation_test_parameters.npy"
+    energy_estimation_test_parameters = np.load(path_to_energy_parameters)
+    cdf = convert_tpx3_binary(
+        raw_as_numpy(path_to_data),
+        estimate_energy=True,
+        energy_estimation_parameters=energy_estimation_test_parameters,
+        correct_timewalk=True,
+        timewalk_b=167.0,
+        timewalk_c=-0.016,
+        verbose=True,
+    )
+
+    required = {"t", "xc", "yc", "ToT_max", "ToT_sum", "n", "e_sum", "t_corr"}
+    assert required.issubset(cdf.columns)
+    pd.testing.assert_frame_equal(cdf, pd.read_parquet(PROC_DATA_DIR / "raw_test_data_01_cent.parquet"), atol=0.01)
 
 
 def test_convert_tpx3_file(tmp_path):
@@ -29,6 +56,7 @@ def test_convert_tpx3_file(tmp_path):
     cdf = pd.read_parquet(tmp_path / "raw_test_data_01_cent.parquet")
     required = {"t", "xc", "yc", "ToT_max", "ToT_sum", "n", "e_sum", "t_corr"}
     assert required.issubset(cdf.columns)
+    pd.testing.assert_frame_equal(cdf, pd.read_parquet(PROC_DATA_DIR / "raw_test_data_01_cent.parquet"), atol=0.01)
 
 
 def test_convert_tpx3_file_config(tmp_path):
@@ -50,6 +78,7 @@ def test_convert_tpx3_file_config(tmp_path):
     assert required.issubset(cdf.columns)
     tpx3_config.energy_estimation_parameters = None
     assert read_parquet_config(processed_cdf_fpath) == dict(tpx3_config)
+    pd.testing.assert_frame_equal(cdf, pd.read_parquet(PROC_DATA_DIR / "raw_test_data_01_cent.parquet"), atol=0.01)
 
 
 def test_convert_tpx3_files(tmp_path):
