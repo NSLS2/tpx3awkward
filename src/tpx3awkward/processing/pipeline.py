@@ -147,8 +147,6 @@ def convert_tpx3_file(
 
     clustered_df = convert_tpx3_binary(raw_as_numpy(tpx3_fpath), config=config)
 
-    logger.info(f"Clustering and centroiding complete. Saving to {cent_out_fpath.name}...")
-
     save_df(clustered_df, cent_out_fpath, config=config)
     logger.info(f"Saving {cent_out_fpath.name} complete. Checking file existence...")
 
@@ -259,4 +257,4 @@ def convert_tpx3_files_parallel(
 
     # Count successes
     num_true = sum(results)
-    print(f"Successfully converted {num_true} out of {len(tpx3_fpaths)}!")
+    logger.info(print(f"Successfully converted {num_true} out of {len(tpx3_fpaths)}!"))

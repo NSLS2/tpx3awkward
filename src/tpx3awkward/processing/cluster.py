@@ -8,11 +8,15 @@ MICROSECOND = 1e-6
 
 def _cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bool = False):
     cols = ["t", "x", "y", "ToT", "t"]
+    # x, y, ToT, t, energy, t_corr
+    col_indices = [0, 1, 2, 3, 0, 0]
 
     if estimate_energy:
         cols.append("e")
+        col_indices[4] = len(cols) - 2
     if correct_timewalk:
         cols.append("t_corr")
+        col_indices[5] = len(cols) - 2
 
     tw_ts_ticks = int(tw * MICROSECOND / TIMESTAMP_VALUE)
 
@@ -21,7 +25,7 @@ def _cluster(df, tw, radius, estimate_energy: bool = False, correct_timewalk: bo
 
     labels = _get_cluster_labels(events, tw_ts_ticks, radius)
 
-    return labels, events[:, 1:]
+    return labels, np.array(col_indices), events[:, 1:]
 
 
 @numba.jit(nopython=True, cache=True)
@@ -89,6 +93,7 @@ def _group_indices(labels):
 def _centroid_clusters(
     cluster_arr: np.ndarray,
     events: np.ndarray,
+    col_indices: np.array,
     estimate_energy: bool = False,
     correct_timewalk: bool = False,
 ) -> tuple[np.ndarray]:
@@ -114,7 +119,7 @@ def _centroid_clusters(
                     _ToT_max = events[event, 2]
                     t[cluster_id] = events[event, 3]
                     if correct_timewalk:
-                        t_corr[cluster_id] = events[event, 5]
+                        t_corr[cluster_id] = events[event, col_indices[5]]
                     ToT_max[cluster_id] = _ToT_max
                 xc[cluster_id] += events[event, 0] * events[event, 2]  # x and y centroids by time over threshold
                 yc[cluster_id] += events[event, 1] * events[event, 2]
@@ -122,7 +127,7 @@ def _centroid_clusters(
                 n[cluster_id] += np.ubyte(1)  # number of events in cluster
 
                 if estimate_energy:
-                    e_sum[cluster_id] += events[event, 4]
+                    e_sum[cluster_id] += events[event, col_indices[4]]
             else:
                 break
 
@@ -192,13 +197,16 @@ def cluster_decoded_df(
     estimate_energy: bool = "e" in df.columns
     correct_timewalk: bool = "t_corr" in df.columns
 
-    cluster_labels, events = _cluster(df, tw, radius, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk)
+    cluster_labels, col_indices, events = _cluster(
+        df, tw, radius, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk
+    )
     df["cluster_id"] = cluster_labels
     cluster_array = _group_indices(cluster_labels)
 
     data = _centroid_clusters(
         cluster_array,
         events,
+        col_indices,
         estimate_energy=estimate_energy,
         correct_timewalk=correct_timewalk,
     )

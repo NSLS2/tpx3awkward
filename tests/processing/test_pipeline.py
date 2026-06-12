@@ -35,6 +35,7 @@ def test_convert_tpx3_binary():
 
     required = {"t", "xc", "yc", "ToT_max", "ToT_sum", "n", "e_sum", "t_corr"}
     assert required.issubset(cdf.columns)
+    pd.testing.assert_frame_equal(cdf, pd.read_parquet(PROC_DATA_DIR / "raw_test_data_01_cent.parquet"), atol=0.01)
 
 
 def test_convert_tpx3_file(tmp_path):
@@ -55,6 +56,7 @@ def test_convert_tpx3_file(tmp_path):
     cdf = pd.read_parquet(tmp_path / "raw_test_data_01_cent.parquet")
     required = {"t", "xc", "yc", "ToT_max", "ToT_sum", "n", "e_sum", "t_corr"}
     assert required.issubset(cdf.columns)
+    pd.testing.assert_frame_equal(cdf, pd.read_parquet(PROC_DATA_DIR / "raw_test_data_01_cent.parquet"), atol=0.01)
 
 
 def test_convert_tpx3_file_config(tmp_path):
@@ -76,6 +78,7 @@ def test_convert_tpx3_file_config(tmp_path):
     assert required.issubset(cdf.columns)
     tpx3_config.energy_estimation_parameters = None
     assert read_parquet_config(processed_cdf_fpath) == dict(tpx3_config)
+    pd.testing.assert_frame_equal(cdf, pd.read_parquet(PROC_DATA_DIR / "raw_test_data_01_cent.parquet"), atol=0.01)
 
 
 def test_convert_tpx3_files(tmp_path):
