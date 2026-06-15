@@ -173,17 +173,19 @@ def decode_message(msg, chip, heartbeat_time: np.uint64 = 0):
     return x, y, ToT, ts
 
 
-@numba.jit(nopython=True, cache=True)
+# @numba.jit(nopython=True, cache=True)
 def _ingest_raw_data(data):
     chips = np.zeros_like(data, dtype=np.uint8)
     x = np.zeros_like(data, dtype="u2")
     y = np.zeros_like(data, dtype="u2")
     tot = np.zeros_like(data, dtype="u4")
     ts = np.zeros_like(data, dtype="u8")
+    tdc = np.zeros_like(data, dtype="u8")
     heartbeat_lsb = None  # np.uint64(0)
     heartbeat_msb = None  # np.uint64(0)
     heartbeat_time = np.uint64(0)
     hb_init_flag = False  # Indicate when the heartbeat was set for the first time
+    tdc_time = np.uint64(0)
 
     photon_count, chip_indx, msg_run_count, expected_msg_count = 0, 0, 0, 0
 
@@ -208,6 +210,7 @@ def _ingest_raw_data(data):
             y[photon_count] = _y
             tot[photon_count] = _tot
             ts[photon_count] = _ts
+            tdc[photon_count] = tdc_time
 
             # Adjust timestamps that were set before the first heartbeat was received
             if hb_init_flag and (photon_count > 0):
@@ -228,15 +231,19 @@ def _ingest_raw_data(data):
 
         elif matches_nibble(msg, 0x6):
             # Type 3: TDC timstamp (id'd via 0x6 upper nibble)
+
+            # version 1
             tdc_type = get_block(msg, 4, 56)
-            trigger_count = get_block(msg, 12, 44)
-            coarse_timestamp = get_block(msg, 35, 9)
+            # trigger_count = get_block(msg, 12, 44)
+            coarse_timestamp = get_block(msg, 35, 9)  # 3.125 ns
+            print(f"coarse_timestamp binary: {coarse_timestamp:b}")
             fine_timestamp = get_block(msg, 4, 5)
             if fine_timestamp == 0:
                 print("TDC decoding error!")
             else:
-                timestamp_ns = coarse_timestamp * 3.125 + (fine_timestamp * 0.26041666)  # 260.41666 ps
+                timestamp_ns = np.uint64(coarse_timestamp * 3.125 + (fine_timestamp * 0.26041666))  # 260.41666 ps
 
+                tdc_time = timestamp_ns
                 # 0xf (15) = TDC1 rise, 0xa (10) = TDC1 fall, 0xe (14) = TDC2 rise, 0xb (11) = TDC2 fall
                 match tdc_type:
                     case 0xF:
@@ -248,8 +255,51 @@ def _ingest_raw_data(data):
                     case 0xB:
                         tdc_type_string = "TDC2 fall"
 
-                print(f"{tdc_type_string} with trigger count {trigger_count} and timestamp of {timestamp_ns} ns")
+                print(tdc_type_string)
+                # print(f"{tdc_type_string} with trigger count
+                # {trigger_count} and timestamp of {timestamp_ns} ns and photon_count of {photon_count}")
                 msg_run_count += 1
+            # print(
+            # f"tdc type: {tdc_type_string}, trigger count: {trigger_count}, coarse_timestamp: {coarse_timestamp},
+            # fine_timestamp: {fine_timestamp}, tdc_time: {tdc_time} ns, chip: {chip_indx}"
+            # )
+
+            # version 2
+            tdc_type = get_block(msg, 4, 56)
+            # trigger_count = get_block(msg, 12, 44)
+            coarsetime = msg >> 12 & 0xFFFFFFFF
+
+            # heartbeat correction code
+            heartbeat_time_tmp = heartbeat_time
+            # pixel_bits are the two highest bits of the SPIDR (i.e. the pixelbits range covers 262143 spidr cycles)
+            pixel_bits = np.int8((coarsetime >> np.uint(28)) & np.uint(0x3))
+            # heart_bits are the bits at the same positions in the heartbeat_time
+            heart_bits = np.int8((heartbeat_time_tmp >> np.uint(28)) & np.uint(0x3))
+            # Adjust heartbeat_time based on the difference between heart_bits and pixel_bits
+            diff = heart_bits - pixel_bits
+            # diff +/-1 occur when pixelbits step up
+            # diff +/-3 occur when spidr counter overfills
+            # diff can also be 0 -- then nothing happens -- but never +/-2
+            if (diff == 1 or diff == -3) and (heartbeat_time_tmp > np.uint(0x10000000)):
+                heartbeat_time_tmp -= np.uint(0x10000000)
+            elif diff == -1 or diff == 3:
+                heartbeat_time_tmp += np.uint(0x10000000)
+            # Construct globaltime
+            coarsetime = (heartbeat_time & np.uint(0xFFFFFFFC0000000)) | (coarsetime & np.uint(0x3FFFFFFF))
+
+            tmpfine = (msg >> 5) & 0xF
+            tmpfine = ((tmpfine - 1) << 9) // 12
+            trigtime_fine = (msg & 0x0000000000000E00) | (tmpfine & 0x00000000000001FF)
+            time_unit = 25.0 / 4096
+            tdc_time = coarsetime * 25e-9 + trigtime_fine * time_unit * 1e-9
+
+            match tdc_type:
+                case 0xA:
+                    tdc_time *= -1
+                case 0xB:
+                    tdc_time *= -1
+
+            msg_run_count += 1
 
         elif matches_nibble(msg, 0x4):
             # Type 4: global timestap (id'd via 0x4 upper nibble)
@@ -267,6 +317,10 @@ def _ingest_raw_data(data):
                     # TODO the c++ code has large jump detection, do not understand why
             else:
                 raise Exception(f"Unknown subheader {subheader} in the Global Timestamp message")
+
+            # print(f"heartbeat message with heartbeat_time {heartbeat_time} and chip {chip_indx}")
+            # print(f"{tdc_type_string} with trigger count {trigger_count} and timestamp of {timestamp_ns} ns
+            # and photon_count of {photon_count}")
 
             msg_run_count += 1
 
@@ -318,9 +372,9 @@ def _ingest_raw_data(data):
     # Sort the timestamps
     # is mergesort the best here? wondering if this could be optimized
     indx = np.argsort(ts[:photon_count], kind="mergesort")
-    x, y, tot, ts, chips = x[indx], y[indx], tot[indx], ts[indx], chips[indx]
+    x, y, tot, ts, chips, tdc = x[indx], y[indx], tot[indx], ts[indx], chips[indx], tdc[indx]
 
-    return x, y, tot, ts, chips
+    return x, y, tot, ts, chips, tdc
 
 
 def ingest_raw_data(data: NDArray[np.uint64]) -> dict[str, NDArray]:
@@ -337,7 +391,7 @@ def ingest_raw_data(data: NDArray[np.uint64]) -> dict[str, NDArray]:
     Dict[str, NDArray]
        Keys of x, y, ToT, chip_number
     """
-    return {k.strip(): v for k, v in zip(["x", " y", " ToT", " t", " chip"], _ingest_raw_data(data), strict=True)}
+    return {k.strip(): v for k, v in zip(["x", " y", " ToT", " t", " chip", " tdc"], _ingest_raw_data(data), strict=True)}
 
 
 def decode_tpx3_binary(binary: NDArray[np.uint64]) -> pd.DataFrame:
