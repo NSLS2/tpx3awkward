@@ -180,14 +180,15 @@ def _ingest_raw_data(data):
     y = np.zeros_like(data, dtype="u2")
     tot = np.zeros_like(data, dtype="u4")
     ts = np.zeros_like(data, dtype="u8")
-    tdc = np.zeros_like(data, dtype="u8")
+    tdc_times = np.zeros_like(data, dtype="f8")
+    tdc_types = np.zeros_like(data, dtype=np.uint8)
+    tdc_chips = np.zeros_like(data, dtype=np.uint8)
     heartbeat_lsb = None  # np.uint64(0)
     heartbeat_msb = None  # np.uint64(0)
     heartbeat_time = np.uint64(0)
     hb_init_flag = False  # Indicate when the heartbeat was set for the first time
-    tdc_time = np.uint64(0)
 
-    photon_count, chip_indx, msg_run_count, expected_msg_count = 0, 0, 0, 0
+    photon_count, chip_indx, msg_run_count, expected_msg_count, tdc_count = 0, 0, 0, 0, 0
 
     for msg in data:
         if is_packet_header(msg):
@@ -210,7 +211,7 @@ def _ingest_raw_data(data):
             y[photon_count] = _y
             tot[photon_count] = _tot
             ts[photon_count] = _ts
-            tdc[photon_count] = tdc_time
+            # print(f"phot:  {_ts*1.5625}")
 
             # Adjust timestamps that were set before the first heartbeat was received
             if hb_init_flag and (photon_count > 0):
@@ -233,36 +234,15 @@ def _ingest_raw_data(data):
             # Type 3: TDC timstamp (id'd via 0x6 upper nibble)
 
             # version 1
-            tdc_type = get_block(msg, 4, 56)
+            # tdc_type = get_block(msg, 4, 56)
             # trigger_count = get_block(msg, 12, 44)
-            coarse_timestamp = get_block(msg, 35, 9)  # 3.125 ns
-            print(f"coarse_timestamp binary: {coarse_timestamp:b}")
-            fine_timestamp = get_block(msg, 4, 5)
-            if fine_timestamp == 0:
-                print("TDC decoding error!")
-            else:
-                timestamp_ns = np.uint64(coarse_timestamp * 3.125 + (fine_timestamp * 0.26041666))  # 260.41666 ps
-
-                tdc_time = timestamp_ns
-                # 0xf (15) = TDC1 rise, 0xa (10) = TDC1 fall, 0xe (14) = TDC2 rise, 0xb (11) = TDC2 fall
-                match tdc_type:
-                    case 0xF:
-                        tdc_type_string = "TDC1 rise"
-                    case 0xA:
-                        tdc_type_string = "TDC1 fall"
-                    case 0xE:
-                        tdc_type_string = "TDC2 rise"
-                    case 0xB:
-                        tdc_type_string = "TDC2 fall"
-
-                print(tdc_type_string)
-                # print(f"{tdc_type_string} with trigger count
-                # {trigger_count} and timestamp of {timestamp_ns} ns and photon_count of {photon_count}")
-                msg_run_count += 1
-            # print(
-            # f"tdc type: {tdc_type_string}, trigger count: {trigger_count}, coarse_timestamp: {coarse_timestamp},
-            # fine_timestamp: {fine_timestamp}, tdc_time: {tdc_time} ns, chip: {chip_indx}"
-            # )
+            # coarse_timestamp = get_block(msg, 35, 9)  # 3.125 ns
+            # print(f"coarse_timestamp binary: {coarse_timestamp:b}")
+            # fine_timestamp = get_block(msg, 4, 5)
+            # if fine_timestamp == 0:
+                # print("TDC decoding error!")
+            # timestamp_ns = (coarse_timestamp * 3.125 + ((fine_timestamp-1) * 0.26041666))  # 260.41666 ps
+            # print("tdc1: ", timestamp_ns)
 
             # version 2
             tdc_type = get_block(msg, 4, 56)
@@ -284,26 +264,34 @@ def _ingest_raw_data(data):
                 heartbeat_time_tmp -= np.uint(0x10000000)
             elif diff == -1 or diff == 3:
                 heartbeat_time_tmp += np.uint(0x10000000)
-            # Construct globaltime
-            coarsetime = (heartbeat_time & np.uint(0xFFFFFFFC0000000)) | (coarsetime & np.uint(0x3FFFFFFF))
 
+            coarsetime = (heartbeat_time_tmp & np.uint(0xFFFFFFFC0000000)) | (coarsetime & np.uint(0x3FFFFFFF))
             tmpfine = (msg >> 5) & 0xF
             tmpfine = ((tmpfine - 1) << 9) // 12
             trigtime_fine = (msg & 0x0000000000000E00) | (tmpfine & 0x00000000000001FF)
-            time_unit = 25.0 / 4096
-            tdc_time = coarsetime * 25e-9 + trigtime_fine * time_unit * 1e-9
+            time_unit = 25.0 / 4096.0
+            tdc_time = np.float64(coarsetime) * 25 + np.float64(trigtime_fine) * time_unit
 
+            tdc_times[tdc_count] = tdc_time
+            tdc_chips[tdc_count] = chip_indx
             match tdc_type:
-                case 0xA:
-                    tdc_time *= -1
-                case 0xB:
-                    tdc_time *= -1
+                case 0xF: # TDC1 rise
+                    tdc_types[tdc_count] = 0
+                case 0xA: # TDC1 fall
+                    tdc_types[tdc_count] = 1
+                case 0xE: # TDC2 rise
+                    tdc_types[tdc_count] = 2
+                case 0xB: # TDC2 fall
+                    tdc_types[tdc_count] = 3
 
+            # print("tdc2: ", tdc_time)
+            # print("diff: ", ((tdc_time- timestamp_ns)))
+            tdc_count += 1
             msg_run_count += 1
 
         elif matches_nibble(msg, 0x4):
             # Type 4: global timestap (id'd via 0x4 upper nibble)
-            subheader = (msg >> np.uint(56)) & np.uint64(0x0F)
+            subheader = (msg >> np.uint(56)) & np.uint64(0x0F)  
             if subheader == 0x4:
                 # timer LSB, 32 bits of time -- needs to be received first, before MSB
                 heartbeat_lsb = (msg >> np.uint(16)) & np.uint64(0xFFFFFFFF)
@@ -372,12 +360,18 @@ def _ingest_raw_data(data):
     # Sort the timestamps
     # is mergesort the best here? wondering if this could be optimized
     indx = np.argsort(ts[:photon_count], kind="mergesort")
-    x, y, tot, ts, chips, tdc = x[indx], y[indx], tot[indx], ts[indx], chips[indx], tdc[indx]
+    x, y, tot, ts, chips = x[indx], y[indx], tot[indx], ts[indx], chips[indx]
 
-    return x, y, tot, ts, chips, tdc
+    if tdc_count > 0:
+        tdc_indx = np.argsort(tdc_times[:tdc_count], kind="mergesort")
+        tdc_times, tdc_types, tdc_chips = tdc_times[tdc_indx], tdc_types[tdc_indx], tdc_chips[tdc_indx]
+    else:
+        tdc_times, tdc_types, tdc_chips = None, None, None
+
+    return x, y, tot, ts, chips, tdc_times, tdc_types, tdc_chips
 
 
-def ingest_raw_data(data: NDArray[np.uint64]) -> dict[str, NDArray]:
+def ingest_raw_data(data: NDArray[np.uint64]) -> dict[str, NDArray | None]:
     """
     Parse values out of raw timepix3 data stream.
 
@@ -391,10 +385,10 @@ def ingest_raw_data(data: NDArray[np.uint64]) -> dict[str, NDArray]:
     Dict[str, NDArray]
        Keys of x, y, ToT, chip_number
     """
-    return {k.strip(): v for k, v in zip(["x", " y", " ToT", " t", " chip", " tdc"], _ingest_raw_data(data), strict=True)}
+    return {k.strip(): v for k, v in zip(["x", " y", " ToT", " t", " chip", " tdc_t_ns", " tdc_type", " tdc_chip"], _ingest_raw_data(data), strict=True)}
 
 
-def decode_tpx3_binary(binary: NDArray[np.uint64]) -> pd.DataFrame:
+def decode_tpx3_binary(binary: NDArray[np.uint64]) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """
     High-level function to parse event messages from tpx3 binary
 
@@ -408,10 +402,18 @@ def decode_tpx3_binary(binary: NDArray[np.uint64]) -> pd.DataFrame:
     pd.DataFrame
        DataFrame of events parsed from the binary.
     """
+    decoded_data = ingest_raw_data(binary)
+    photon_data = {k: decoded_data[k] for k in ("x", "y", "ToT", "t", "chip")}
+
+    if decoded_data["tdc_t_ns"] is not None:
+        tdc_data = {k: decoded_data[k] for k in ("tdc_t_ns", "tdc_type", "tdc_chip")}
+        tdc_df = pd.DataFrame(tdc_data)
+    else:
+        tdc_df = None
 
     return (
-        pd.DataFrame(ingest_raw_data(binary))
+        pd.DataFrame(photon_data)
         .loc[lambda d: d["ToT"] > 0]  # TODO maybe we should remove this? ToT == 0 should mean something...
         .sort_values(["t", "x", "y", "ToT"])
         .reset_index(drop=True)
-    )
+    ), tdc_df
