@@ -4,6 +4,9 @@ import multiprocessing
 from functools import partial
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+from numpy.typing import NDArray
 from tqdm import tqdm
 
 from .cluster import cluster_decoded_df
@@ -16,6 +19,70 @@ from .schemas import empty_cent_df
 logger = logging.getLogger(__name__)
 
 
+def convert_tpx3_binary(tpx3_binary: NDArray[np.uint64], *, config: Tpx3Config | None = None, **overrides) -> pd.DataFrame:
+    """
+    Convert raw binary timepix3 events into decoded and centroided Pandas dataframes.
+
+    Parameters
+    ----------
+    tpx3_binary : NDArray[np.uint64]
+        Raw binary events formatted as 8 byte messages.
+    config : Tpx3Config | None = None
+        Defines the configurations for processing. If None, then will use `Tpx3Config.from_defaults` with overrides
+    **overrides
+        Used when config is None to override default parameters.
+    """
+    if config is not None and overrides:
+        raise ValueError("Pass either `config` or keyword overrides, not both.")
+    if config is None:
+        config = Tpx3Config.from_defaults(**overrides)
+
+    if config.verbose:
+        logger.setLevel(logging.INFO)
+    else:
+        logger.setLevel(logging.WARNING)
+
+    logger.info(f"-> Processing binary of size: {tpx3_binary.nbytes / (1024 * 1024):.1f} MB")
+
+    decoded_df = decode_tpx3_binary(tpx3_binary)
+    num_events = decoded_df.shape[0]
+
+    if num_events == 0:
+        logger.info("No events found!")
+        return empty_cent_df(estimate_energy=config.estimate_energy, correct_timewalk=config.correct_timewalk)
+
+    logger.info(f"Decoding complete. {num_events} events found.")
+
+    if config.estimate_energy:
+        decoded_df["e"] = estimate_energies(
+            decoded_df["x"].to_numpy(),
+            decoded_df["y"].to_numpy(),
+            decoded_df["ToT"].to_numpy(),
+            config.energy_estimation_parameters,
+        )
+
+    if config.correct_timewalk:
+        decoded_df["t_corr"] = timewalk_corr(
+            decoded_df["t"].to_numpy(), decoded_df["ToT"].to_numpy(), config.timewalk_b, config.timewalk_c
+        )
+
+    if config.correct_trim:
+        decoded_df = trim_corr(decoded_df, config.trim_mask)
+
+    clustered_df = cluster_decoded_df(
+        decoded_df,
+        config.time_window,
+        config.radius,
+    )
+    # maybe we should put this somewhere else...
+    clustered_df.loc[clustered_df["xc"] >= 255.5, "xc"] += 2
+    clustered_df.loc[clustered_df["yc"] >= 255.5, "yc"] += 2
+
+    logger.info(f"Clustering and centroiding complete. Returning dataframe with {clustered_df.shape[0]} clustered events.")
+
+    return clustered_df
+
+
 def convert_tpx3_file(
     tpx3_fpath: str | Path,
     *,
@@ -24,7 +91,7 @@ def convert_tpx3_file(
     **overrides,
 ):
     """
-    Convert a .tpx3 file into raw and centroided Pandas dataframes, which are stored in .h5 files.
+    Convert a .tpx3 file into decoded and centroided Pandas dataframes, which are stored in parquet or hdf5 files.
 
     Parameters
     ----------
@@ -78,46 +145,7 @@ def convert_tpx3_file(
         logger.info(f"-> {tpx3_fpath.name} already processed, skipping.")
         return False
 
-    logger.info(f"-> Processing {tpx3_fpath.name}, size: {tpx3_fpath.stat().st_size / (1024 * 1024):.1f} MB")
-    decoded_df = decode_tpx3_binary(raw_as_numpy(tpx3_fpath))
-    num_events = decoded_df.shape[0]
-
-    if num_events == 0:
-        logger.info("No events found! Saving empty dataframes.")
-        save_df(
-            empty_cent_df(estimate_energy=config.estimate_energy, correct_timewalk=config.correct_timewalk), cent_out_fpath
-        )
-        gc.collect()
-        return True
-
-    logger.info(f"Loading {tpx3_fpath.name} complete. {num_events} events found.")
-
-    if config.estimate_energy:
-        decoded_df["e"] = estimate_energies(
-            decoded_df["x"].to_numpy(),
-            decoded_df["y"].to_numpy(),
-            decoded_df["ToT"].to_numpy(),
-            config.energy_estimation_parameters,
-        )
-
-    if config.correct_timewalk:
-        decoded_df["t_corr"] = timewalk_corr(
-            decoded_df["t"].to_numpy(), decoded_df["ToT"].to_numpy(), config.timewalk_b, config.timewalk_c
-        )
-
-    if config.correct_trim:
-        decoded_df = trim_corr(decoded_df, config.trim_mask)
-
-    clustered_df = cluster_decoded_df(
-        decoded_df,
-        config.time_window,
-        config.radius,
-    )
-    # maybe we should put this somewhere else...
-    clustered_df.loc[clustered_df["xc"] >= 255.5, "xc"] += 2
-    clustered_df.loc[clustered_df["yc"] >= 255.5, "yc"] += 2
-
-    logger.info(f"Clustering and centroiding complete. Saving to {cent_out_fpath.name}...")
+    clustered_df = convert_tpx3_binary(raw_as_numpy(tpx3_fpath), config=config)
 
     save_df(clustered_df, cent_out_fpath, config=config)
     logger.info(f"Saving {cent_out_fpath.name} complete. Checking file existence...")
@@ -129,7 +157,7 @@ def convert_tpx3_file(
         logger.info(f"WARNING: {cent_out_fpath.name} doesn't exist but it should?!")
         to_return = False
 
-    del decoded_df, clustered_df
+    del clustered_df
     gc.collect()
     return to_return
 
@@ -229,4 +257,4 @@ def convert_tpx3_files_parallel(
 
     # Count successes
     num_true = sum(results)
-    print(f"Successfully converted {num_true} out of {len(tpx3_fpaths)}!")
+    logger.info(print(f"Successfully converted {num_true} out of {len(tpx3_fpaths)}!"))
