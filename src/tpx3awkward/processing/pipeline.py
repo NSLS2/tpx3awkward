@@ -44,12 +44,12 @@ def convert_tpx3_binary(tpx3_binary: NDArray[np.uint64], *, config: Tpx3Config |
 
     logger.info(f"-> Processing binary of size: {tpx3_binary.nbytes / (1024 * 1024):.1f} MB")
 
-    decoded_df = decode_tpx3_binary(tpx3_binary)
+    decoded_df, tdc_df = decode_tpx3_binary(tpx3_binary)
     num_events = decoded_df.shape[0]
 
     if num_events == 0:
         logger.info("No events found!")
-        return empty_cent_df(estimate_energy=config.estimate_energy, correct_timewalk=config.correct_timewalk)
+        return empty_cent_df(estimate_energy=config.estimate_energy, correct_timewalk=config.correct_timewalk), tdc_df
 
     logger.info(f"Decoding complete. {num_events} events found.")
 
@@ -80,7 +80,7 @@ def convert_tpx3_binary(tpx3_binary: NDArray[np.uint64], *, config: Tpx3Config |
 
     logger.info(f"Clustering and centroiding complete. Returning dataframe with {clustered_df.shape[0]} clustered events.")
 
-    return clustered_df
+    return clustered_df, tdc_df
 
 
 def convert_tpx3_file(
@@ -145,7 +145,11 @@ def convert_tpx3_file(
         logger.info(f"-> {tpx3_fpath.name} already processed, skipping.")
         return False
 
-    clustered_df = convert_tpx3_binary(raw_as_numpy(tpx3_fpath), config=config)
+    clustered_df, tdc_df = convert_tpx3_binary(raw_as_numpy(tpx3_fpath), config=config)
+
+    if tdc_df is not None:
+        tdc_out_fpath = cent_out_fpath.with_name(cent_out_fpath.name.replace("cent", "tdc"))
+        save_df(tdc_df, tdc_out_fpath, config=config)
 
     save_df(clustered_df, cent_out_fpath, config=config)
     logger.info(f"Saving {cent_out_fpath.name} complete. Checking file existence...")

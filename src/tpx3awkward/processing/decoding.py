@@ -106,6 +106,26 @@ def decode_xy(msg, chip):
 def get_spidr(msg):
     return msg & np.uint(0xFFFF)
 
+@numba.jit(nopython=True, cache=True)
+def _extend_timestamp(coarse: np.uint64, heartbeat_time: np.uint64) -> np.uint64:
+    coarse = np.uint64(coarse)
+    heartbeat_time = np.uint64(heartbeat_time)
+    # pixel_bits are the two highest bits of the coarse counter
+    pixel_bits = np.int8((coarse >> np.uint64(28)) & np.uint64(0x3))
+    # heart_bits are the bits at the same positions in the heartbeat_time
+    heart_bits = np.int8((heartbeat_time >> np.uint64(28)) & np.uint64(0x3))
+    # Adjust heartbeat_time based on the difference between heart_bits and pixel_bits
+    diff = heart_bits - pixel_bits
+    # diff +/-1 occur when pixelbits step up
+    # diff +/-3 occur when the coarse counter overfills
+    # diff can also be 0 -- then nothing happens -- but never +/-2
+    if (diff == 1 or diff == -3) and (heartbeat_time > np.uint64(0x10000000)):
+        heartbeat_time -= np.uint64(0x10000000)
+    elif diff == -1 or diff == 3:
+        heartbeat_time += np.uint64(0x10000000)
+    # Merge the heartbeat MSBs with the low 30 bits of the coarse counter
+    return (heartbeat_time & np.uint64(0xFFFFFFFC0000000)) | (coarse & np.uint64(0x3FFFFFFF))
+
 
 @numba.jit(nopython=True, cache=True)
 def decode_message(msg, chip, heartbeat_time: np.uint64 = 0):
@@ -173,7 +193,7 @@ def decode_message(msg, chip, heartbeat_time: np.uint64 = 0):
     return x, y, ToT, ts
 
 
-# @numba.jit(nopython=True, cache=True)
+@numba.jit(nopython=True, cache=True)
 def _ingest_raw_data(data):
     chips = np.zeros_like(data, dtype=np.uint8)
     x = np.zeros_like(data, dtype="u2")
@@ -187,8 +207,11 @@ def _ingest_raw_data(data):
     heartbeat_msb = None  # np.uint64(0)
     heartbeat_time = np.uint64(0)
     hb_init_flag = False  # Indicate when the heartbeat was set for the first time
-
+    
+    tdc_coarse_tmp = np.zeros_like(data, dtype="u4")
+    tdc_tmp_count = 0
     photon_count, chip_indx, msg_run_count, expected_msg_count, tdc_count = 0, 0, 0, 0, 0
+
 
     for msg in data:
         if is_packet_header(msg):
@@ -211,7 +234,6 @@ def _ingest_raw_data(data):
             y[photon_count] = _y
             tot[photon_count] = _tot
             ts[photon_count] = _ts
-            # print(f"phot:  {_ts*1.5625}")
 
             # Adjust timestamps that were set before the first heartbeat was received
             if hb_init_flag and (photon_count > 0):
@@ -232,48 +254,11 @@ def _ingest_raw_data(data):
 
         elif matches_nibble(msg, 0x6):
             # Type 3: TDC timstamp (id'd via 0x6 upper nibble)
-
-            # version 1
-            # tdc_type = get_block(msg, 4, 56)
-            # trigger_count = get_block(msg, 12, 44)
-            # coarse_timestamp = get_block(msg, 35, 9)  # 3.125 ns
-            # print(f"coarse_timestamp binary: {coarse_timestamp:b}")
-            # fine_timestamp = get_block(msg, 4, 5)
-            # if fine_timestamp == 0:
-                # print("TDC decoding error!")
-            # timestamp_ns = (coarse_timestamp * 3.125 + ((fine_timestamp-1) * 0.26041666))  # 260.41666 ps
-            # print("tdc1: ", timestamp_ns)
-
-            # version 2
             tdc_type = get_block(msg, 4, 56)
-            # trigger_count = get_block(msg, 12, 44)
-            coarsetime = msg >> 12 & 0xFFFFFFFF
+            coarsetime = np.uint64((msg >> np.uint64(12)) & np.uint64(0xFFFFFFFF))
 
-            # heartbeat correction code
-            heartbeat_time_tmp = heartbeat_time
-            # pixel_bits are the two highest bits of the SPIDR (i.e. the pixelbits range covers 262143 spidr cycles)
-            pixel_bits = np.int8((coarsetime >> np.uint(28)) & np.uint(0x3))
-            # heart_bits are the bits at the same positions in the heartbeat_time
-            heart_bits = np.int8((heartbeat_time_tmp >> np.uint(28)) & np.uint(0x3))
-            # Adjust heartbeat_time based on the difference between heart_bits and pixel_bits
-            diff = heart_bits - pixel_bits
-            # diff +/-1 occur when pixelbits step up
-            # diff +/-3 occur when spidr counter overfills
-            # diff can also be 0 -- then nothing happens -- but never +/-2
-            if (diff == 1 or diff == -3) and (heartbeat_time_tmp > np.uint(0x10000000)):
-                heartbeat_time_tmp -= np.uint(0x10000000)
-            elif diff == -1 or diff == 3:
-                heartbeat_time_tmp += np.uint(0x10000000)
-
-            coarsetime = (heartbeat_time_tmp & np.uint(0xFFFFFFFC0000000)) | (coarsetime & np.uint(0x3FFFFFFF))
-            tmpfine = (msg >> 5) & 0xF
-            tmpfine = ((tmpfine - 1) << 9) // 12
-            trigtime_fine = (msg & 0x0000000000000E00) | (tmpfine & 0x00000000000001FF)
-            time_unit = 25.0 / 4096.0
-            tdc_time = np.float64(coarsetime) * 25 + np.float64(trigtime_fine) * time_unit
-
-            tdc_times[tdc_count] = tdc_time
             tdc_chips[tdc_count] = chip_indx
+
             match tdc_type:
                 case 0xF: # TDC1 rise
                     tdc_types[tdc_count] = 0
@@ -284,8 +269,25 @@ def _ingest_raw_data(data):
                 case 0xB: # TDC2 fall
                     tdc_types[tdc_count] = 3
 
-            # print("tdc2: ", tdc_time)
-            # print("diff: ", ((tdc_time- timestamp_ns)))
+            tmpfine = np.int64((msg >> np.uint64(5)) & np.uint64(0xF))
+            tmpfine = ((tmpfine - np.int64(1)) << np.int64(9)) // np.int64(12)
+            trigtime_fine = np.int64((msg & np.uint64(0x0000000000000E00))) | (tmpfine & np.int64(0x00000000000001FF))
+            time_unit = 25.0 / 4096.0
+            tdc_times[tdc_count] += np.float64(trigtime_fine) * time_unit
+
+            if heartbeat_time == np.uint64(0):
+                tdc_coarse_tmp[tdc_tmp_count] = np.uint32(coarsetime)
+                tdc_tmp_count += 1
+            else:
+                if tdc_tmp_count > 0:
+                    for tmp_indx in range(tdc_tmp_count):
+                        coarsetime_tmp = _extend_timestamp(np.uint64(tdc_coarse_tmp[tmp_indx]), heartbeat_time)
+                        tdc_times[tmp_indx] += np.float64(coarsetime_tmp) * 25
+                    tdc_tmp_count = 0
+
+                coarsetime = _extend_timestamp(coarsetime, heartbeat_time)
+                tdc_times[tdc_count] += np.uint64(coarsetime) * 25
+
             tdc_count += 1
             msg_run_count += 1
 

@@ -23,7 +23,7 @@ def test_convert_tpx3_binary():
     path_to_data = RAW_DATA_DIR / "raw_test_data_01.tpx3"
     path_to_energy_parameters = CONFIG_DIR / "energy_estimation_test_parameters.npy"
     energy_estimation_test_parameters = np.load(path_to_energy_parameters)
-    cdf = convert_tpx3_binary(
+    cdf, tdc_df = convert_tpx3_binary(
         raw_as_numpy(path_to_data),
         estimate_energy=True,
         energy_estimation_parameters=energy_estimation_test_parameters,
