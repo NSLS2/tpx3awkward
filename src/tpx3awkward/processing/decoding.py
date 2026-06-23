@@ -106,6 +106,7 @@ def decode_xy(msg, chip):
 def get_spidr(msg):
     return msg & np.uint(0xFFFF)
 
+
 @numba.jit(nopython=True, cache=True)
 def _extend_timestamp(coarse: np.uint64, heartbeat_time: np.uint64) -> np.uint64:
     coarse = np.uint64(coarse)
@@ -170,21 +171,8 @@ def decode_message(msg, chip, heartbeat_time: np.uint64 = 0):
     SPIDR = np.uint64(get_spidr(msg))
 
     ToA_coarse = (SPIDR << np.uint(14)) | ToA
-    # pixel_bits are the two highest bits of the SPIDR (i.e. the pixelbits range covers 262143 spidr cycles)
-    pixel_bits = np.int8((ToA_coarse >> np.uint(28)) & np.uint(0x3))
-    # heart_bits are the bits at the same positions in the heartbeat_time
-    heart_bits = np.int8((heartbeat_time >> np.uint(28)) & np.uint(0x3))
-    # Adjust heartbeat_time based on the difference between heart_bits and pixel_bits
-    diff = heart_bits - pixel_bits
-    # diff +/-1 occur when pixelbits step up
-    # diff +/-3 occur when spidr counter overfills
-    # diff can also be 0 -- then nothing happens -- but never +/-2
-    if (diff == 1 or diff == -3) and (heartbeat_time > np.uint(0x10000000)):
-        heartbeat_time -= np.uint(0x10000000)
-    elif diff == -1 or diff == 3:
-        heartbeat_time += np.uint(0x10000000)
-    # Construct globaltime
-    global_time = (heartbeat_time & np.uint(0xFFFFFFFC0000000)) | (ToA_coarse & np.uint(0x3FFFFFFF))
+    # extend timestamp with heartbeat
+    global_time = _extend_timestamp(ToA_coarse, heartbeat_time=heartbeat_time)
     # Phase correction
     phase = np.uint((x / 2) % 16) or np.uint(16)
     # Construct timestamp with phase correction
@@ -203,15 +191,15 @@ def _ingest_raw_data(data):
     tdc_times = np.zeros_like(data, dtype="f8")
     tdc_types = np.zeros_like(data, dtype=np.uint8)
     tdc_chips = np.zeros_like(data, dtype=np.uint8)
+    # these two are required due to tdc events arriving before a global timestamp, need to be corrected after
+    tdc_coarse_tmp = np.zeros_like(data, dtype="u4")
+    tdc_tmp_count = 0
     heartbeat_lsb = None  # np.uint64(0)
     heartbeat_msb = None  # np.uint64(0)
     heartbeat_time = np.uint64(0)
     hb_init_flag = False  # Indicate when the heartbeat was set for the first time
-    
-    tdc_coarse_tmp = np.zeros_like(data, dtype="u4")
-    tdc_tmp_count = 0
-    photon_count, chip_indx, msg_run_count, expected_msg_count, tdc_count = 0, 0, 0, 0, 0
 
+    photon_count, chip_indx, msg_run_count, expected_msg_count, tdc_count = 0, 0, 0, 0, 0
 
     for msg in data:
         if is_packet_header(msg):
@@ -260,18 +248,18 @@ def _ingest_raw_data(data):
             tdc_chips[tdc_count] = chip_indx
 
             match tdc_type:
-                case 0xF: # TDC1 rise
+                case 0xF:  # TDC1 rise
                     tdc_types[tdc_count] = 0
-                case 0xA: # TDC1 fall
+                case 0xA:  # TDC1 fall
                     tdc_types[tdc_count] = 1
-                case 0xE: # TDC2 rise
+                case 0xE:  # TDC2 rise
                     tdc_types[tdc_count] = 2
-                case 0xB: # TDC2 fall
+                case 0xB:  # TDC2 fall
                     tdc_types[tdc_count] = 3
 
             tmpfine = np.int64((msg >> np.uint64(5)) & np.uint64(0xF))
             tmpfine = ((tmpfine - np.int64(1)) << np.int64(9)) // np.int64(12)
-            trigtime_fine = np.int64((msg & np.uint64(0x0000000000000E00))) | (tmpfine & np.int64(0x00000000000001FF))
+            trigtime_fine = np.int64(msg & np.uint64(0x0000000000000E00)) | (tmpfine & np.int64(0x00000000000001FF))
             time_unit = 25.0 / 4096.0
             tdc_times[tdc_count] += np.float64(trigtime_fine) * time_unit
 
@@ -293,7 +281,7 @@ def _ingest_raw_data(data):
 
         elif matches_nibble(msg, 0x4):
             # Type 4: global timestap (id'd via 0x4 upper nibble)
-            subheader = (msg >> np.uint(56)) & np.uint64(0x0F)  
+            subheader = (msg >> np.uint(56)) & np.uint64(0x0F)
             if subheader == 0x4:
                 # timer LSB, 32 bits of time -- needs to be received first, before MSB
                 heartbeat_lsb = (msg >> np.uint(16)) & np.uint64(0xFFFFFFFF)
@@ -307,10 +295,6 @@ def _ingest_raw_data(data):
                     # TODO the c++ code has large jump detection, do not understand why
             else:
                 raise Exception(f"Unknown subheader {subheader} in the Global Timestamp message")
-
-            # print(f"heartbeat message with heartbeat_time {heartbeat_time} and chip {chip_indx}")
-            # print(f"{tdc_type_string} with trigger count {trigger_count} and timestamp of {timestamp_ns} ns
-            # and photon_count of {photon_count}")
 
             msg_run_count += 1
 
@@ -387,7 +371,12 @@ def ingest_raw_data(data: NDArray[np.uint64]) -> dict[str, NDArray | None]:
     Dict[str, NDArray]
        Keys of x, y, ToT, chip_number
     """
-    return {k.strip(): v for k, v in zip(["x", " y", " ToT", " t", " chip", " tdc_t_ns", " tdc_type", " tdc_chip"], _ingest_raw_data(data), strict=True)}
+    return {
+        k.strip(): v
+        for k, v in zip(
+            ["x", " y", " ToT", " t", " chip", " tdc_t_ns", " tdc_type", " tdc_chip"], _ingest_raw_data(data), strict=True
+        )
+    }
 
 
 def decode_tpx3_binary(binary: NDArray[np.uint64]) -> tuple[pd.DataFrame, pd.DataFrame | None]:

@@ -37,6 +37,10 @@ def test_convert_tpx3_binary():
     assert required.issubset(cdf.columns)
     pd.testing.assert_frame_equal(cdf, pd.read_parquet(PROC_DATA_DIR / "raw_test_data_01_cent.parquet"), atol=0.01)
 
+    # no tdc in this test data, so tdc_df should be None
+    assert tdc_df is None
+
+
 def test_convert_tpx3_binary_tdc():
     path_to_data = RAW_DATA_DIR / "tdc/raw_test_data_tdc_00.tpx3"
     path_to_energy_parameters = CONFIG_DIR / "energy_estimation_test_parameters.npy"
@@ -53,9 +57,10 @@ def test_convert_tpx3_binary_tdc():
 
     required = {"t", "xc", "yc", "ToT_max", "ToT_sum", "n", "e_sum", "t_corr"}
     assert required.issubset(cdf.columns)
-    
+
     required_tdc = {"tdc_t_ns", "tdc_type", "tdc_chip"}
     assert required_tdc.issubset(tdc_df.columns)
+
 
 def test_convert_tpx3_file(tmp_path):
     path_to_data = RAW_DATA_DIR / "raw_test_data_01.tpx3"
@@ -76,6 +81,7 @@ def test_convert_tpx3_file(tmp_path):
     required = {"t", "xc", "yc", "ToT_max", "ToT_sum", "n", "e_sum", "t_corr"}
     assert required.issubset(cdf.columns)
     pd.testing.assert_frame_equal(cdf, pd.read_parquet(PROC_DATA_DIR / "raw_test_data_01_cent.parquet"), atol=0.01)
+
 
 def test_convert_tpx3_file_tdc(tmp_path):
     path_to_data = RAW_DATA_DIR / "tdc/raw_test_data_tdc_00.tpx3"
@@ -99,6 +105,7 @@ def test_convert_tpx3_file_tdc(tmp_path):
     tdc_df = pd.read_parquet(tmp_path / "raw_test_data_tdc_00_tdc.parquet")
     required_tdc = {"tdc_t_ns", "tdc_type", "tdc_chip"}
     assert required_tdc.issubset(tdc_df.columns)
+
 
 def test_convert_tpx3_file_config(tmp_path):
     path_to_data = RAW_DATA_DIR / "raw_test_data_01.tpx3"
