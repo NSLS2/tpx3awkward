@@ -44,7 +44,7 @@ def convert_tpx3_binary(tpx3_binary: NDArray[np.uint64], *, config: Tpx3Config |
 
     logger.info(f"-> Processing binary of size: {tpx3_binary.nbytes / (1024 * 1024):.1f} MB")
 
-    decoded_df, tdc_df = decode_tpx3_binary(tpx3_binary)
+    decoded_df, tdc_df = decode_tpx3_binary(tpx3_binary, tdc=config.tdc)
     num_events = decoded_df.shape[0]
 
     if num_events == 0:
@@ -147,7 +147,7 @@ def convert_tpx3_file(
 
     clustered_df, tdc_df = convert_tpx3_binary(raw_as_numpy(tpx3_fpath), config=config)
 
-    if tdc_df is not None:
+    if config.tdc:
         tdc_out_fpath = cent_out_fpath.with_name(cent_out_fpath.name.replace("cent", "tdc"))
         save_df(tdc_df, tdc_out_fpath, config=config)
 

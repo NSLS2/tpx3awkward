@@ -32,7 +32,7 @@ def test_decode_tpx3_binary_tdc():
     tdc_dfs = []
     for raw_tpx3_file_path in raw_tpx3_file_paths:
         binary = raw_as_numpy(raw_tpx3_file_path)
-        _, tdc_df = decode_tpx3_binary(binary)
+        _, tdc_df = decode_tpx3_binary(binary, tdc=True)
         tdc_dfs.append(tdc_df)
 
     concat_tdc_df = pd.concat(tdc_dfs, ignore_index=True)
@@ -43,3 +43,20 @@ def test_decode_tpx3_binary_tdc():
     # tdc events come in bunches per chip, so only check for one
     concat_tdc_df_chip_0 = concat_tdc_df.loc[concat_tdc_df["tdc_chip"] == 0]
     assert concat_tdc_df_chip_0["tdc_t_ns"].is_monotonic_increasing
+
+
+def test_decode_tpx3_binary_no_tdc():
+    path_to_raw_data = RAW_DATA_DIR
+    raw_tpx3_file_paths = sorted([p for p in path_to_raw_data.glob("*") if p.is_file() and ".tpx3" in str(p)])
+
+    # when tdc=True and no TDC events, empty dataframes should be saved
+    tdc_dfs = []
+    for raw_tpx3_file_path in raw_tpx3_file_paths:
+        binary = raw_as_numpy(raw_tpx3_file_path)
+        _, tdc_df = decode_tpx3_binary(binary, tdc=True)
+        tdc_dfs.append(tdc_df)
+
+    concat_tdc_df = pd.concat(tdc_dfs, ignore_index=True)
+    required = {"tdc_t_ns", "tdc_type", "tdc_chip"}
+    assert required.issubset(concat_tdc_df.columns)
+    assert len(concat_tdc_df) == 0

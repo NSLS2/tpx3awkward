@@ -42,6 +42,9 @@ class Tpx3Config(BaseModel):
         Trim correction mask. May be provided directly as a NumPy
         array or as a path to a ``.npy`` file.
 
+    tdc : bool, default = False
+        Enable processing and saving of TDC packets into a separate dataframe.
+
     file_extension : str, default=".parquet"
         Output file extension. Must be either ``".h5"`` or ``".parquet"``.
 
@@ -95,6 +98,7 @@ class Tpx3Config(BaseModel):
     trim_mask: np.ndarray | None = None
 
     # --- Misc. ---
+    tdc: bool = False
     file_extension: str = ".parquet"
     add_centroid_cols: bool = True
     overwrite: bool = True
