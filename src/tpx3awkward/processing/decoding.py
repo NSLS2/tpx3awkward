@@ -21,7 +21,7 @@ def matches_nibble(data, nibble) -> numba.boolean:
 
 @numba.jit(nopython=True, cache=True)
 def is_packet_header(v: UnSigned) -> UnSigned:
-    """Identify packet headers by magic number (TPX3 as ascii on lowest 8 bytes]"""
+    """Identify packet headers by magic number (TPX3 as ascii on lowest 8 bytes)"""
     return get_block(v, 32, 0) == 861425748
 
 
@@ -33,7 +33,7 @@ def classify_array(data: IA) -> NDArray[np.uint8]:
     0: an unknown type (!!)
     1: packet header (id'd via TPX3 magic number)
     2: photon event (id'd via 0xB upper nibble)
-    3: TDC timstamp (id'd via 0x6 upper nibble)
+    3: TDC timestamp (id'd via 0x6 upper nibble)
     4: global timestap (id'd via 0x4 upper nibble)
     5: "command" data (id'd via 0x7 upper nibble)
     6: frame driven data (id'd via 0xA upper nibble) (??)
@@ -79,7 +79,7 @@ def _shift_xy(chip, row, col):
 def decode_xy(msg, chip):
     # these names and math are adapted from c++ code
     l_pix_addr = (msg >> np.uint(44)) & np.uint(0xFFFF)
-    # This is laid out 16ibts which are 2 interleaved 8 bit unsigned ints
+    # This is laid out 16 bits which are 2 interleaved 8 bit unsigned ints
     #  CCCCCCCRRRRRRCRR
     #  |dcol ||spix|^||
     #  | 7   || 6  |1|2
@@ -245,7 +245,7 @@ def _ingest_raw_data(data, tdc: bool = False):
             msg_run_count += 1
 
         elif matches_nibble(msg, 0x6):
-            # Type 3: TDC timstamp (id'd via 0x6 upper nibble)
+            # Type 3: TDC timestamp (id'd via 0x6 upper nibble)
             if tdc:
                 tdc_type = get_block(msg, 4, 56)
                 coarsetime = np.uint64((msg >> np.uint64(12)) & np.uint64(0xFFFFFFFF))
@@ -261,6 +261,8 @@ def _ingest_raw_data(data, tdc: bool = False):
                         tdc_types[tdc_count] = 2
                     case 0xB:  # TDC2 fall
                         tdc_types[tdc_count] = 3
+                    case _:
+                        raise Exception(f"Unknown TDC type {tdc_type} in the TDC message")
 
                 tmpfine = np.int64((msg >> np.uint64(5)) & np.uint64(0xF))
                 tmpfine = ((tmpfine - np.int64(1)) << np.int64(9)) // np.int64(12)
@@ -341,8 +343,7 @@ def _ingest_raw_data(data, tdc: bool = False):
 
     # Check if there were no heartbeat messages and adjust for potential SPIDR rollovers
     if heartbeat_msb is None:
-        # warnings.warn("No heartbeat messages received; decoded timestamps may be inaccurate.")
-        # print("No heartbeat messages received; decoded timestamps may be inaccurate.")
+        print("No heartbeat messages received; decoded timestamps may be inaccurate.")
         head_max = max(ts[:10])
         tail_min = min(ts[-10:])
         if (head_max > tail_min) and (head_max - tail_min > 2**32):
