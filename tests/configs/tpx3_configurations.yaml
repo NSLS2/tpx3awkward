@@ -15,6 +15,7 @@ timewalk_c: -0.016
 correct_trim: False
 
 # --- Misc. ---
+tdc: False
 file_extension: ".parquet"
 add_centroid_cols: True
 overwrite: True

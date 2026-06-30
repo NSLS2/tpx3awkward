@@ -11,6 +11,7 @@
 
   "correct_trim": false,
 
+  "tdc": false,
   "file_extension": ".parquet",
   "add_centroid_cols": true,
   "overwrite": true,

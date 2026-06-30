@@ -15,7 +15,8 @@ CONFIG_DIR = Path(__file__).parents[1] / "configs"
 
 @pytest.fixture
 def decoded_df():
-    return decode_tpx3_binary(raw_as_numpy(RAW_DATA_DIR / "raw_test_data_01.tpx3"))
+    event_df, _ = decode_tpx3_binary(raw_as_numpy(RAW_DATA_DIR / "raw_test_data_01.tpx3"))
+    return event_df
 
 
 @pytest.fixture
