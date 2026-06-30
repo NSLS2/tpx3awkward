@@ -108,6 +108,8 @@ def test_convert_tpx3_file_tdc(tmp_path):
     required_tdc = {"tdc_t_ns", "tdc_type", "tdc_chip"}
     assert required_tdc.issubset(tdc_df.columns)
 
+    pd.testing.assert_frame_equal(tdc_df, pd.read_parquet(PROC_DATA_DIR / "tdc/raw_test_data_tdc_00_tdc.parquet"), atol=0.01)
+
 
 def test_convert_tpx3_file_no_tdc(tmp_path):
     path_to_data = RAW_DATA_DIR / "raw_test_data_01.tpx3"

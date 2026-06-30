@@ -200,7 +200,7 @@ def _ingest_raw_data(data, tdc: bool = False):
         tdc_types = np.zeros_like(data, dtype=np.uint8)
         tdc_chips = np.zeros_like(data, dtype=np.uint8)
         # these two are required due to tdc events arriving before a global timestamp, need to be corrected after
-        tdc_coarse_tmp = np.zeros_like(data, dtype="u4")
+        tdc_coarse_tmp = np.zeros_like(data, dtype="u8")
         tdc_count, tdc_tmp_count = 0, 0
     else:
         tdc_times, tdc_types, tdc_chips = None, None, None
@@ -248,10 +248,21 @@ def _ingest_raw_data(data, tdc: bool = False):
             # Type 3: TDC timestamp (id'd via 0x6 upper nibble)
             if tdc:
                 tdc_type = get_block(msg, 4, 56)
-                coarsetime = np.uint64((msg >> np.uint64(12)) & np.uint64(0xFFFFFFFF))
+                # coarse time is binned at 3.125ns
+                coarsetime = get_block(msg, 35, 9)
+                # finetime is binned at 260.41666ps
+                # value 1 = 0ps, value 2 = 260.41666ps, etc, so subtract by 1
+                finetime = get_block(msg, 4, 5) - 1
+                # save the lower 3 bits of coarsetime before the shift below
+                coarsetime_low3 = coarsetime & 0x7
+                # shift coarsetime right 3 bits (or // 8) to convert to 25ns from 3.125ns
+                # now coarsetime shares the same binning as photon event coarsetime, so the same
+                # globaltime extension code can be used
+                coarsetime = coarsetime >> 3
+                # convert finetime (binned in 0.26041666ns) and coarsetime_low3 (binned in 3.125ns) to nanoseconds
+                tdc_times[tdc_count] += (np.float64(finetime) * 0.26041666) + (np.float64(coarsetime_low3) * 3.125)
 
                 tdc_chips[tdc_count] = chip_indx
-
                 match tdc_type:
                     case 0xF:  # TDC1 rise
                         tdc_types[tdc_count] = 0
@@ -264,24 +275,17 @@ def _ingest_raw_data(data, tdc: bool = False):
                     case _:
                         raise Exception(f"Unknown TDC type {tdc_type} in the TDC message")
 
-                tmpfine = np.int64((msg >> np.uint64(5)) & np.uint64(0xF))
-                tmpfine = ((tmpfine - np.int64(1)) << np.int64(9)) // np.int64(12)
-                trigtime_fine = np.int64(msg & np.uint64(0x0000000000000E00)) | (tmpfine & np.int64(0x00000000000001FF))
-                time_unit = 25.0 / 4096.0
-                tdc_times[tdc_count] += np.float64(trigtime_fine) * time_unit
-
                 if heartbeat_time == np.uint64(0):
-                    tdc_coarse_tmp[tdc_tmp_count] = np.uint32(coarsetime)
+                    tdc_coarse_tmp[tdc_tmp_count] = np.uint64(coarsetime)
                     tdc_tmp_count += 1
                 else:
                     if tdc_tmp_count > 0:
                         for tmp_indx in range(tdc_tmp_count):
                             coarsetime_tmp = _extend_timestamp(np.uint64(tdc_coarse_tmp[tmp_indx]), heartbeat_time)
-                            tdc_times[tmp_indx] += np.float64(coarsetime_tmp) * 25
+                            tdc_times[tmp_indx] += np.float64(coarsetime_tmp) * 25.0
                         tdc_tmp_count = 0
-
                     coarsetime = _extend_timestamp(coarsetime, heartbeat_time)
-                    tdc_times[tdc_count] += np.uint64(coarsetime) * 25
+                    tdc_times[tdc_count] += np.float64(coarsetime) * 25.0
 
                 tdc_count += 1
             msg_run_count += 1

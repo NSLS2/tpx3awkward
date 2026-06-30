@@ -6,6 +6,7 @@ from tpx3awkward.processing.decoding import decode_tpx3_binary
 from tpx3awkward.processing.files import raw_as_numpy
 
 RAW_DATA_DIR = Path(__file__).parents[1] / "data/raw"
+PROC_DATA_DIR = Path(__file__).parents[1] / "data/processed/"
 
 
 def test_decode_tpx3_binary_missing_messages(capsys):
@@ -38,6 +39,12 @@ def test_decode_tpx3_binary_tdc():
     concat_tdc_df = pd.concat(tdc_dfs, ignore_index=True)
     required = {"tdc_t_ns", "tdc_type", "tdc_chip"}
     assert required.issubset(concat_tdc_df.columns)
+
+    path_to_proc_data = PROC_DATA_DIR / "tdc/"
+    stable_tdc_df_fpaths = sorted([p for p in path_to_proc_data.glob("*") if p.is_file() and ".parquet" in str(p)])
+    stable_concat_tdc_df = pd.concat([pd.read_parquet(fpath) for fpath in stable_tdc_df_fpaths], ignore_index=True)
+
+    pd.testing.assert_frame_equal(concat_tdc_df, stable_concat_tdc_df, atol=0.01)
 
     # time should be monotonically increasing
     # tdc events come in bunches per chip, so only check for one
