@@ -19,7 +19,9 @@ from .schemas import empty_cent_df
 logger = logging.getLogger(__name__)
 
 
-def convert_tpx3_binary(tpx3_binary: NDArray[np.uint64], *, config: Tpx3Config | None = None, **overrides) -> pd.DataFrame:
+def convert_tpx3_binary(
+    tpx3_binary: NDArray[np.uint64], *, config: Tpx3Config | None = None, **overrides
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """
     Convert raw binary timepix3 events into decoded and centroided Pandas dataframes.
 
@@ -31,6 +33,12 @@ def convert_tpx3_binary(tpx3_binary: NDArray[np.uint64], *, config: Tpx3Config |
         Defines the configurations for processing. If None, then will use `Tpx3Config.from_defaults` with overrides
     **overrides
         Used when config is None to override default parameters.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame | None]
+       DataFrame of centroided photon events, and an optional TDC event DataFrame dependent on the ``tdc`` parameter
+       in ``Tpx3Config`` or ``overrides``.
     """
     if config is not None and overrides:
         raise ValueError("Pass either `config` or keyword overrides, not both.")
