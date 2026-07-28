@@ -1,6 +1,8 @@
 # tpx3awkward
 
-[![Actions Status][actions-badge]][actions-link] [![PyPI version][pypi-version]][pypi-link]  [![Coverage][coverage-badge]][coverage-link]
+[![Actions Status][actions-badge]][actions-link]
+[![PyPI version][pypi-version]][pypi-link]
+[![Coverage][coverage-badge]][coverage-link]
 
 <!-- SPHINX-START -->
 
@@ -15,12 +17,13 @@
 
 <!-- prettier-ignore-end -->
 
-tpx3awkward is a Python package for efficient handling of data produced by the Timepix family of detectors, this includes:
+tpx3awkward is a Python package for efficient handling of data produced by the
+Timepix family of detectors, this includes:
+
 - Fast Decoding of raw `.tpx3` binary files
 - Event clustering and centroiding
 - Timewalk correction
 - Energy estimation
-
 
 ## Installation
 
