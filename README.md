@@ -1,10 +1,7 @@
 # tpx3awkward
 
 [![Actions Status][actions-badge]][actions-link]
-
 [![PyPI version][pypi-version]][pypi-link]
-[![PyPI platforms][pypi-platforms]][pypi-link]
-
 [![Coverage][coverage-badge]][coverage-link]
 
 <!-- SPHINX-START -->
@@ -19,3 +16,17 @@
 [coverage-link]:            https://codecov.io/github/NSLS2/tpx3awkward
 
 <!-- prettier-ignore-end -->
+
+tpx3awkward is a Python package for efficient handling of data produced by the
+Timepix family of detectors, this includes:
+
+- Fast Decoding of raw `.tpx3` binary files
+- Event clustering and centroiding
+- Timewalk correction
+- Energy estimation
+
+## Installation
+
+```bash
+pip install tpx3awkward
+```
