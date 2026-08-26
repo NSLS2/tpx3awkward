@@ -211,8 +211,16 @@ def cluster_decoded_df(
         correct_timewalk=correct_timewalk,
     )
 
-    return (
-        pd.DataFrame(_ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
-        .sort_values(["t", "xc", "yc", "ToT_max", "ToT_sum"])
-        .reset_index(drop=True)
-    )
+    if correct_timewalk:
+        return (
+            pd.DataFrame(_ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
+            .sort_values(["t_corr", "t", "xc", "yc", "ToT_max", "ToT_sum"])
+            .reset_index(drop=True)
+        )
+
+    else:
+        return (
+            pd.DataFrame(_ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
+            .sort_values(["t", "xc", "yc", "ToT_max", "ToT_sum"])
+            .reset_index(drop=True)
+        )        
