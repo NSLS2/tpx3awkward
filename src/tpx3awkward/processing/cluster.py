@@ -139,7 +139,7 @@ def _centroid_clusters(
 
 
 def _ingest_cent_data(
-    data: np.ndarray, estimate_energy: bool = False, correct_timewalk: bool = False
+    data: tuple[np.ndarray], estimate_energy: bool = False, correct_timewalk: bool = False
 ) -> dict[str, np.ndarray]:
     """
     Package np.ndarray into a dict with keys associated with the names of the columns dataframe.
@@ -184,7 +184,7 @@ def cluster_decoded_df(
         Decoded dataframe with columns ['x', 'y', 'ToT', 't', 'chip'].
         May also include optional columns 'e' and 't_corr'.
     tw : float
-        Time Window for the clustering algorithm, in microseconds.
+        Time window for the clustering algorithm, in microseconds.
     radius : int,
         Radius for the clustering algorithm, in pixels.
 
@@ -211,16 +211,8 @@ def cluster_decoded_df(
         correct_timewalk=correct_timewalk,
     )
 
-    if correct_timewalk:
-        return (
-            pd.DataFrame(_ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
-            .sort_values(["t_corr", "t", "xc", "yc", "ToT_max", "ToT_sum"])
-            .reset_index(drop=True)
-        )
-
-    else:
-        return (
-            pd.DataFrame(_ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
-            .sort_values(["t", "xc", "yc", "ToT_max", "ToT_sum"])
-            .reset_index(drop=True)
-        )        
+    return (
+        pd.DataFrame(_ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
+        .sort_values((["t_corr", "t"] if correct_timewalk else ["t"]) + ["xc", "yc", "ToT_max", "ToT_sum"])
+        .reset_index(drop=True)
+    )
