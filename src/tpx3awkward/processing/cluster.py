@@ -96,7 +96,7 @@ def _centroid_clusters(
     col_indices: np.array,
     estimate_energy: bool = False,
     correct_timewalk: bool = False,
-) -> tuple[np.ndarray]:
+) -> tuple[np.ndarray, ...]:
     num_clusters = cluster_arr.shape[0]
     max_cluster = cluster_arr.shape[1]
     t = np.zeros(num_clusters, dtype="uint64")
@@ -139,14 +139,14 @@ def _centroid_clusters(
 
 
 def _ingest_cent_data(
-    data: np.ndarray, estimate_energy: bool = False, correct_timewalk: bool = False
+    data: tuple[np.ndarray, ...], estimate_energy: bool = False, correct_timewalk: bool = False
 ) -> dict[str, np.ndarray]:
     """
     Package np.ndarray into a dict with keys associated with the names of the columns dataframe.
 
     Parameters
     ----------
-    data : np.ndarray
+    data : tuple[np.ndarray, ...]
         The stream of cluster data from cluster_arr_to_cent()
     estimate_energy : bool, optional
         Whether the data includes estimated energy sum (e_sum). Default is False.
@@ -184,7 +184,7 @@ def cluster_decoded_df(
         Decoded dataframe with columns ['x', 'y', 'ToT', 't', 'chip'].
         May also include optional columns 'e' and 't_corr'.
     tw : float
-        Time Window for the clustering algorithm, in microseconds.
+        Time window for the clustering algorithm, in microseconds.
     radius : int,
         Radius for the clustering algorithm, in pixels.
 
@@ -213,6 +213,6 @@ def cluster_decoded_df(
 
     return (
         pd.DataFrame(_ingest_cent_data(data, estimate_energy=estimate_energy, correct_timewalk=correct_timewalk))
-        .sort_values(["t", "xc", "yc", "ToT_max", "ToT_sum"])
+        .sort_values((["t_corr", "t"] if correct_timewalk else ["t"]) + ["xc", "yc", "ToT_max", "ToT_sum"])
         .reset_index(drop=True)
     )
