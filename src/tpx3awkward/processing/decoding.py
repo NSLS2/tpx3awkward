@@ -382,6 +382,9 @@ def decode_tpx3_binary(binary: NDArray[np.uint64], tdc: bool = False) -> tuple[p
        DataFrame of photon events parsed from the binary, and an optional TDC event DataFrame dependent on the
        ``tdc`` parameter.
     """
+    if binary.size == 0:
+        return None
+
     decoded_data = {
         k.strip(): v
         for k, v in zip(

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from tpx3awkward.processing.decoding import decode_tpx3_binary
@@ -67,3 +68,8 @@ def test_decode_tpx3_binary_no_tdc():
     required = {"tdc_t_ns", "tdc_type", "tdc_chip"}
     assert required.issubset(concat_tdc_df.columns)
     assert len(concat_tdc_df) == 0
+
+
+def test_decode_tpx3_binary_zero_bytes():
+    binary = np.array([], dtype=np.uint64)
+    _ = decode_tpx3_binary(binary)
