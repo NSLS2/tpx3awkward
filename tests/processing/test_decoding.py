@@ -1,9 +1,11 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from tpx3awkward.processing.decoding import decode_tpx3_binary
 from tpx3awkward.processing.files import raw_as_numpy
+from tpx3awkward.processing.schemas import empty_raw_df, empty_tdc_df
 
 RAW_DATA_DIR = Path(__file__).parents[1] / "data/raw"
 PROC_DATA_DIR = Path(__file__).parents[1] / "data/processed/"
@@ -67,3 +69,17 @@ def test_decode_tpx3_binary_no_tdc():
     required = {"tdc_t_ns", "tdc_type", "tdc_chip"}
     assert required.issubset(concat_tdc_df.columns)
     assert len(concat_tdc_df) == 0
+
+
+def test_decode_tpx3_binary_zero_bytes():
+    binary = np.array([], dtype=np.uint64)
+
+    # w/o tdc
+    df, _ = decode_tpx3_binary(binary)
+
+    pd.testing.assert_frame_equal(df, empty_raw_df())
+    # w tdc
+    df, tdc_df = decode_tpx3_binary(binary, tdc=True)
+
+    pd.testing.assert_frame_equal(df, empty_raw_df())
+    pd.testing.assert_frame_equal(tdc_df, empty_tdc_df())
