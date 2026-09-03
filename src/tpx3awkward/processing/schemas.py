@@ -19,7 +19,6 @@ def empty_raw_df() -> pd.DataFrame:
         "ToT": np.array([], dtype="u4"),  # uint32
         "t": np.array([], dtype="u8"),  # uint64
         "chip": np.array([], dtype="u1"),  # uint8
-        "cluster_id": np.array([], dtype="u8"),  # uint64
     }
 
     return pd.DataFrame(data)
