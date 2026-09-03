@@ -5,6 +5,7 @@ import pandas as pd
 
 from tpx3awkward.processing.decoding import decode_tpx3_binary
 from tpx3awkward.processing.files import raw_as_numpy
+from tpx3awkward.processing.schemas import empty_raw_df, empty_tdc_df
 
 RAW_DATA_DIR = Path(__file__).parents[1] / "data/raw"
 PROC_DATA_DIR = Path(__file__).parents[1] / "data/processed/"
@@ -72,4 +73,13 @@ def test_decode_tpx3_binary_no_tdc():
 
 def test_decode_tpx3_binary_zero_bytes():
     binary = np.array([], dtype=np.uint64)
-    _ = decode_tpx3_binary(binary)
+
+    # w/o tdc
+    df, _ = decode_tpx3_binary(binary)
+
+    pd.testing.assert_frame_equal(df, empty_raw_df())
+    # w tdc
+    df, tdc_df = decode_tpx3_binary(binary, tdc=True)
+
+    pd.testing.assert_frame_equal(df, empty_raw_df())
+    pd.testing.assert_frame_equal(tdc_df, empty_tdc_df())

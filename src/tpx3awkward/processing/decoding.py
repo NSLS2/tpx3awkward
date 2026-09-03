@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
+from .schemas import empty_raw_df, empty_tdc_df
+
 IA: TypeAlias = NDArray[np.uint64]
 UnSigned = TypeVar("UnSigned", IA, np.uint64)
 
@@ -383,7 +385,7 @@ def decode_tpx3_binary(binary: NDArray[np.uint64], tdc: bool = False) -> tuple[p
        ``tdc`` parameter.
     """
     if binary.size == 0:
-        return None
+        return empty_raw_df(), empty_tdc_df() if tdc else None
 
     decoded_data = {
         k.strip(): v

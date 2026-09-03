@@ -2,23 +2,16 @@ import numpy as np
 import pandas as pd
 
 
-def empty_raw_df(include_energy: bool = False) -> pd.DataFrame:
+def empty_raw_df() -> pd.DataFrame:
     """
-    Create an empty DataFrame with the expected columns from ingest_raw_data()
+    Create an empty event DataFrame with the expected columns from _ingest_raw_data()
     and the specified data types.
-
-    Parameters
-    ----------
-    include_energy : bool, optional
-        Whether to include the 'e' column (energy estimates). Default is False.
 
     Returns
     -------
     pd.DataFrame
         Empty DataFrame with columns:
-        ['x', 'y', 'ToT', 't', 'chip', 'cluster_id'] and appropriate dtypes
-        or
-        ['x', 'y', 'ToT', 'e', 't', 'chip', 'cluster_id'] if include_energy is True.
+        ['x', 'y', 'ToT', 't', 'chip'] and appropriate dtypes
     """
     data = {
         "x": np.array([], dtype="u2"),  # uint16
@@ -29,8 +22,25 @@ def empty_raw_df(include_energy: bool = False) -> pd.DataFrame:
         "cluster_id": np.array([], dtype="u8"),  # uint64
     }
 
-    if include_energy:
-        data["e"] = np.array([], dtype="float32")
+    return pd.DataFrame(data)
+
+
+def empty_tdc_df() -> pd.DataFrame:
+    """
+    Create an empty tdc DataFrame with the expected columns from _ingest_raw_data()
+    and the specified data types.
+
+    Returns
+    -------
+    pd.DataFrame
+        Empty DataFrame with columns:
+        ['tdc_t_ns', 'tdc_type', 'tdc_chip'] and appropriate dtypes
+    """
+    data = {
+        "tdc_t_ns": np.array([], dtype="f8"),
+        "tdc_type": np.array([], dtype=np.uint8),
+        "tdc_chip": np.array([], dtype=np.uint8),
+    }
 
     return pd.DataFrame(data)
 
@@ -42,8 +52,11 @@ def empty_cent_df(estimate_energy: bool = False, correct_timewalk: bool = False)
 
     Parameters
     ----------
-    include_energy : bool, optional
+    estimate_energy : bool, optional
         Whether to include the 'e_sum' column (energy estimates). Default is False.
+    correct_timewalk : bool, optional
+        Whether to include the 't_corr' column (timewalk correction). Default is False
+
 
     Returns
     -------
