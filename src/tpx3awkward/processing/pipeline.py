@@ -269,4 +269,4 @@ def convert_tpx3_files_parallel(
 
     # Count successes
     num_true = sum(results)
-    logger.info(print(f"Successfully converted {num_true} out of {len(tpx3_fpaths)}!"))
+    logger.info(f"Successfully converted {num_true} out of {len(tpx3_fpaths)}!")

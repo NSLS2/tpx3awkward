@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -246,3 +247,22 @@ def test_convert_tpx3_files_parallel(tmp_path):
     stable_proc_df = pd.read_parquet(path_to_proc_data)
 
     pd.testing.assert_frame_equal(cur_proc_df, stable_proc_df, atol=0.01)
+
+
+def test_convert_tpx3_files_parallel_logs_the_summary(tmp_path, caplog):
+    """The summary has to reach the log, not stdout.
+
+    `logger.info(print(...))` logged print's return value, so the record read
+    "None" while the text went to stdout, where the log level cannot suppress
+    it and no handler or formatter applies.
+    """
+    path_to_data = RAW_DATA_DIR
+    raw_tpx3_file_paths = sorted([p for p in Path(path_to_data).glob("*") if p.is_file() and ".tpx3" in str(p)])
+
+    with caplog.at_level(logging.INFO, logger="tpx3awkward.processing.pipeline"):
+        convert_tpx3_files_parallel(raw_tpx3_file_paths, output_dir=tmp_path)
+
+    summaries = [r.getMessage() for r in caplog.records if "Successfully converted" in r.getMessage()]
+    assert summaries, f"summary was not logged; records were {[r.getMessage() for r in caplog.records]}"
+    assert "None" not in summaries[0]
+    assert str(len(raw_tpx3_file_paths)) in summaries[0]
